@@ -52,22 +52,21 @@ func init() {
 }
 
 func main() {
-	// Create resulting file
-	createFile(fileResult)
-
 	// Open CSV file
 	csvFile, err := os.Open(fileInput)
 	check(err)
 	defer csvFile.Close()
 
+	// Create resulting file
+	createFile(fileResult)
+
 	// Create CSV Reader
 	csvReader := csv.NewReader(bufio.NewReader(csvFile))
 
 	// Create new Browser
-	var Browser = surf.NewBrowser()
+	var browser = surf.NewBrowser()
 
 	// Loop CSV results
-	// sitesCounter := 0
 	records, err := csvReader.ReadAll()
 	check(err)
 	fmt.Println(len(records))
@@ -80,17 +79,17 @@ func main() {
 		websiteCell := records[i][www]
 
 		// Website state
-		infoError := Browser.Open(websiteCell)
+		infoError := browser.Open(websiteCell)
 		if infoError != nil {
 			info = infoError.Error()
 		} else {
 			info = "no error"
-			fmt.Println("Title:", Browser.Title())
+			fmt.Println("Title:", browser.Title())
 		}
 
 		// If we connect to spywords "clean" times, create a new browser to clean cache\cookies
 		if i%clean == 0 {
-			Browser = surf.NewBrowser()
+			browser = surf.NewBrowser()
 		}
 
 		// Creating link to check the website
@@ -101,11 +100,11 @@ func main() {
 		fmt.Println("win1251:", link1251) //show win-1251 encoded text
 
 		// Open link in Browser
-		err = Browser.Open(link1251)
+		err = browser.Open(link1251)
 		check(err)
 
 		// Getting needed table from the website
-		table := Browser.Find("table.data_table.stat")
+		table := browser.Find("table.data_table.stat")
 
 		// Getting needed cells from the table
 		td := table.Find("tr.white td")
