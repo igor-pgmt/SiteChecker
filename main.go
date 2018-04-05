@@ -6,10 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/headzoo/surf"
 	"golang.org/x/text/encoding/charmap"
-	"gopkg.in/headzoo/surf.v1"
 )
 
 // Command-line flags
@@ -77,6 +78,13 @@ func main() {
 
 		// Get cell content (www address)
 		websiteCell := records[i][www]
+		// Removing spaces
+		websiteCell = strings.Replace(websiteCell, " ", "", -1)
+		// Check for protocol
+		hasProtocol := strings.HasPrefix(websiteCell, "http")
+		if !hasProtocol {
+			websiteCell = "http://" + websiteCell
+		}
 
 		// Website state
 		infoError := browser.Open(websiteCell)
@@ -152,7 +160,7 @@ func writeFile(websiteCell, yandex, google, info string) {
 	defer file.Close()
 
 	// Write CSV-alike textline to the output file
-	writestring := websiteCell + "," + yandex + "," + google + ",\"" + info + "\"\n"
+	writestring := "\"" + websiteCell + "\"" + "," + "\"" + yandex + "\"" + "," + "\"" + google + "\"" + ",\"" + info + "\"\n"
 	_, err = file.WriteString(writestring)
 	check(err)
 
