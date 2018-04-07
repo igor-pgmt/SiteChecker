@@ -23,6 +23,10 @@ This tool gets spywords's result of google and yandex parameters from a CSV list
 - First line for file to grab data:
 
   -firstLine [int]
+
+- Amount of simultaneously jobs:
+
+  -threads [int]
   
 - Help command to show this info:
 
@@ -33,5 +37,5 @@ This tool gets spywords's result of google and yandex parameters from a CSV list
 ./SiteChecker -fileInput input.csv -www 2
 ```
 ```sh
-./SiteChecker -fileInput input.csv -www 1 -clean 5 -firstLine 1 -fileResult output.csv
+./SiteChecker -fileInput input.csv -www 1 -clean 5 -firstLine 1 -fileResult output.csv -threads 8
 ```
