@@ -12,10 +12,6 @@ This tool gets spywords's result of google and yandex parameters from a CSV list
 
   -www [int]
   
-- Cache cleaning frequency (default 9):
-
-  -clean [int]
-  
 - Resulting file name (default "result.csv"):
 
   -fileResult [string]

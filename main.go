@@ -5,9 +5,7 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,18 +21,14 @@ var fileResult string
 var www int
 var firstLine int
 var threads int
-var clean int
+var timeouts int
 var help bool
 
 // Link to website checking
 var linkBase = "https://spywords.ru/sword.php?region=&sword="
 
-// Maintenance function for error checking
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
+// First row for resulting csv file
+var firstRow = "№,website,yandex,google,title,website error,redirect,newWebsite,error,spywords error\n"
 
 // checkFlags checks for required command-line flags
 func checkFlags() {
@@ -42,8 +36,8 @@ func checkFlags() {
 	flag.StringVar(&fileResult, "fileResult", "result.txt", "Please, specify resulting file name")
 	flag.IntVar(&www, "www", 0, "Please, specify column with http:// web addresses [REQUIRED]")
 	flag.IntVar(&firstLine, "firstLine", 0, "Please, specify first line for file to grab data")
-	flag.IntVar(&threads, "threads", 1, "Please, specify amount of threads [min:1]")
-	flag.IntVar(&clean, "clean", 9, "Please, specify cache cleaning frequency")
+	flag.IntVar(&threads, "threads", 1, "Please, specify amount of threads [min:1, max:100]")
+	flag.IntVar(&timeouts, "timeouts", 30, "Please, specify timeout in seconds [min:1]")
 	flag.BoolVar(&help, "help", false, "The help command to show this message")
 	flag.Parse()
 
@@ -54,19 +48,17 @@ func checkFlags() {
 		}
 	}
 
-	if help || fileInput == "" || www < 0 || firstLine < 0 || clean < 1 || threads < 1 {
+	if help || fileInput == "" || www < 0 || firstLine < 0 || threads < 1 || timeouts < 1 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-}
-
-// Check for protocol
-func checkProtocol(link *string) {
-	hasProtocol := strings.HasPrefix(*link, "http")
-	if !hasProtocol {
-		*link = "http://" + *link
+	if threads > 100 {
+		fmt.Println("Sorry, 100 is max")
+		flag.Usage()
+		os.Exit(1)
 	}
+
 }
 
 // Write(append) string to a file
@@ -84,7 +76,6 @@ func writeToFile(file *os.File, writeString string, i int) {
 }
 
 func main() {
-
 	// Check for flags
 	checkFlags()
 
@@ -97,6 +88,7 @@ func main() {
 	file, err := os.Create(fileResult)
 	check(err)
 	defer file.Close()
+	writeToFile(file, firstRow, 0)
 	fmt.Printf("File %s created\n", fileResult)
 
 	// Create CSV Reader
@@ -121,67 +113,85 @@ func main() {
 		// Removing spaces
 		websiteCell = strings.Replace(websiteCell, " ", "", -1)
 		// Check for protocol
-		checkProtocol(&websiteCell)
+		checkedLink := checkProtocol(websiteCell)
 
 		// Increment waitgroup counter
 		wg.Add(1)
 		// Adding "goroutine" to working slot
 		limitChan <- struct{}{}
-		go checkWebsite(file, limitChan, websiteCell, wg, i)
-
+		go checkWebsite(file, limitChan, checkedLink, wg, i)
 	}
 	wg.Wait()
-
 }
 
 func checkWebsite(file *os.File, limitChan chan struct{}, websiteCell string, wg *sync.WaitGroup, i int) {
 
-	fmt.Println("№:", i)
-	// The main part of the link
-	link := linkBase
-	// New address link
-	var redirectLink string
-	// Response headers
-	var respHeaders http.Header
-	// Website state info
-	var info string
+	fmt.Println("№:", i, websiteCell)
+	var title, err1txt, err2txt, err3txt, redirect, newWebsite string
 
-	// Create new Browser
-	var browser = surf.NewBrowser()
-
-	// Website state
-	infoError := browser.Open(websiteCell)
-	if infoError != nil {
-		info = infoError.Error()
+	// Connect to Website and get the title
+	var netClient = createClient()
+	res, err1 := connectToWebsite(netClient, websiteCell)
+	if err1 != nil {
+		err1txt = err1.Error()
 	} else {
-		info = "no error"
-		fmt.Println("Title:", browser.Title())
-		fmt.Println("websiteCell =", websiteCell)
-
-		// If there is "canonical" header it means redirect
-		respHeaders = browser.ResponseHeaders()
-		if len(respHeaders["Link"]) > 0 {
-			re := regexp.MustCompile("canonical")
-			match := re.MatchString(respHeaders["Link"][0])
-			if match {
-				re := regexp.MustCompile("\\<(.*?)\\>")
-				match := re.FindStringSubmatch(respHeaders["Link"][0])
-				redirectLink = match[1]
-				// Creating link to check the website
-				link += redirectLink
+		defer res.Body.Close()
+		if checkRedirect(res) {
+			location := res.Header.Get("Location")
+			redirect = res.Status
+			newWebsite = location
+			var netClient2 = createClientEnd()
+			if location == websiteCell {
+				res, err1 = connectToWebsite(netClient2, websiteCell)
+			} else {
+				var err2 error
+				res, err2 = connectToWebsite(netClient2, websiteCell)
+				if err2 != nil {
+					err2txt = err2.Error()
+				} else {
+					title, _ = getTitle(res)
+				}
 			}
+			websiteCell = checkProtocol(newWebsite)
 		} else {
-			// Creating link to check the website
-			link += websiteCell
+			title, _ = getTitle(res)
 		}
 	}
 
-	// Encode link in win1251
-	fmt.Println("utf8lnk:", link)
-	enc := charmap.Windows1251.NewEncoder()
-	link1251, _ := enc.String(link)
-	fmt.Println("win1251:", link1251) // Shows win-1251 encoded text
+	// Get statistics from the spyword website
+	result, err3 := getSpyWordsInfo(websiteCell, i)
+	if err3 != nil {
+		err3txt = err3.Error()
+	}
 
+	// String to write
+	writeString := "\"" + strconv.Itoa(i) + "\"" + "," +
+		"\"" + websiteCell + "\"" + "," +
+		"\"" + result["yandex"] + "\"" + "," +
+		"\"" + result["google"] + "\"" + "," +
+		"\"" + escapeQuotes(title) + "\"" + "," +
+		"\"" + escapeQuotes(err1txt) + "\"" + "," +
+		"\"" + redirect + "\"" + "," +
+		"\"" + newWebsite + "\"" + "," +
+		"\"" + escapeQuotes(err2txt) + "\"" + "," +
+		"\"" + escapeQuotes(err3txt) + "\"" +
+		"\n"
+
+	// Write results to the file
+	writeToFile(file, writeString, i)
+	// Release working slot
+	<-limitChan
+	// Decrement waitgroup counter
+	wg.Done()
+}
+
+func getSpyWordsInfo(link string, i int) (map[string]string, error) {
+	// Encode link in win1251
+	enc := charmap.Windows1251.NewEncoder()
+	link1251, _ := enc.String(linkBase + link)
+
+	// Create new Browser
+	var browser = surf.NewBrowser()
 	// Open link in Browser
 	err := browser.Open(link1251)
 	check(err)
@@ -191,10 +201,10 @@ func checkWebsite(file *os.File, limitChan chan struct{}, websiteCell string, wg
 
 	// Getting needed cells from the table
 	td := table.Find("tr.white td")
-
 	// Parsed content
-	var google = "no info"
-	var yandex = "no info"
+	result := make(map[string]string)
+	result["google"] = "no info"
+	result["yandex"] = "no info"
 
 	// Search for the needed information
 	if td.Length() > 0 {
@@ -203,27 +213,12 @@ func checkWebsite(file *os.File, limitChan chan struct{}, websiteCell string, wg
 			cellContent := s.Text()
 			switch i {
 			case 1:
-				yandex = cellContent
+				result["yandex"] = cellContent
 			case 10:
-				google = cellContent
-				// break
+				result["google"] = cellContent
 			}
 		})
 	}
 
-	// Row assembly
-	writeString := "\"" + strconv.Itoa(i) + "\"" + "," + "\"" + websiteCell + "\"" + "," + "\"" + yandex + "\"" + "," + "\"" + google + "\"" + ",\"" + info + "\""
-	if redirectLink != "" {
-		writeString += ",\"" + redirectLink + "\""
-		writeString += ",\"" + fmt.Sprint(respHeaders) + "\""
-	}
-	writeString += "\n"
-
-	// Write results to the file
-	writeToFile(file, writeString, i)
-	// Release working slot
-	<-limitChan
-	// Decrement waitgroup counter
-	wg.Done()
-
+	return result, nil
 }
