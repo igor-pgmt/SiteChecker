@@ -33,5 +33,5 @@ This tool gets spywords's result of google and yandex parameters from a CSV list
 ./SiteChecker -fileInput input.csv -www 2
 ```
 ```sh
-./SiteChecker -fileInput input.csv -www 1 -clean 5 -firstLine 1 -fileResult output.csv -threads 8
+./SiteChecker -fileInput input.csv -www 1 -firstLine 1 -fileResult output.csv -threads 8
 ```
